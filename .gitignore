@@ -1,0 +1,52 @@
+# Dependency directories
+node_modules/
+.pnp/
+.pnp.js
+
+# Next.js output
+.next/
+out/
+
+# Testing output
+coverage/
+
+# Build artifacts
+dist/
+build/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Next.js Cache
+.next/cache/
+
+# Miscellaneous
+.DS_Store
+*.swp
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Docker
+docker-compose.yaml
+Dockerfile
+
+# Yarn Berry
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build​⬤
