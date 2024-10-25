@@ -1,4 +1,4 @@
-"use client"
+'use client'
 
 import React, { useState, useEffect } from "react"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
@@ -22,36 +22,12 @@ import { cn } from "@/lib/utils"
 import { format } from "date-fns"
 import { Calendar as CalendarIcon, Bell, Briefcase, ChevronDown, Code, DollarSign, FileIcon, Globe, GraduationCap, Home, MapPin, MessageSquare, Plus, Search, Settings, Upload, User, X, HelpCircle, LogOut } from 'lucide-react'
 import { DayPicker } from "react-day-picker"
+import { useProfile } from "../contexts/ProfileContext"
 
 export default function ProfilePage() {
-  const [profileData, setProfileData] = useState({
-    id: '',
-    full_name: '',
-    title: '',
-    location: '',
-    years_of_experience: '',
-    profile_photo_url: 'https://via.placeholder.com/150',
-    looking_for: '',
-    achievements: '',
-    skills: [],
-    education: [],
-    experience: [],
-    resume_file_url: '',
-    video_resume_url: '',
-    preferred_job_type: '',
-    preferred_locations: [],
-    desired_salary: '',
-    desired_salary_currency: '',
-    job_search_status: '',
-    work_authorization: '',
-    preferred_company_sizes: [],
-    remote_work_preference: '',
-    website: '',
-    linkedin: '',
-    github: '',
-    twitter: '',
-    bio: '',
-  })
+  const profile = useProfile()
+  const { profileData, setProfileData, isLoading, user, updateProfile } = profile || {}
+  const [supabase, setSupabase] = useState(null)
 
   const [newSkill, setNewSkill] = useState('')
   const [newExperience, setNewExperience] = useState({
@@ -73,81 +49,70 @@ export default function ProfilePage() {
     gpa: '',
     max_gpa: '4.0',
   })
-  const [imageFile, setImageFile] = useState(null)
-  const [uploadStatus, setUploadStatus] = useState('idle')
   const [imageKey, setImageKey] = useState(0)
+  const [uploadStatus, setUploadStatus] = useState('idle')
   const { toast } = useToast()
-  const supabase = createClientComponentClient()
 
   useEffect(() => {
-    fetchUserProfile()
+    const initializeSupabase = async () => {
+      const { createClientComponentClient } = await import('@supabase/auth-helpers-nextjs')
+      const supabaseClient = createClientComponentClient({
+        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      })
+      setSupabase(supabaseClient)
+    }
+
+    initializeSupabase()
   }, [])
 
   useEffect(() => {
-    console.log('ProfileData updated:', JSON.stringify(profileData, null, 2))
-  }, [profileData])
+    if (user && supabase) {
+      fetchProfile()
+    }
+  }, [user, supabase])
 
-  const fetchUserProfile = async () => {
+  const fetchProfile = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        let { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
 
-        console.log('Raw data retrieved from Supabase:', JSON.stringify(data, null, 2))
+      if (error) throw error
 
-        if (error) {
-          if (error.code === 'PGRST116') {
-            const newProfile = {
-              id: user.id,
-              full_name: user.user_metadata.full_name || '',
-              email: user.email,
-              experience: [],
-              education: [],
-              skills: [],
-              preferred_locations: [],
-              preferred_company_sizes: [],
-            }
-            const { data: createdProfile, error: createError } = await supabase
-              .from('profiles')
-              .upsert(newProfile)
-              .select()
-              .single()
-
-            if (createError) throw createError
-            data = createdProfile
-            console.log('New profile created:', JSON.stringify(data, null, 2))
-          } else {
-            throw error
-          }
-        }
-
-        const formattedData = {
-          ...data,
-          skills: Array.isArray(data.skills) ? data.skills : [],
-          education: Array.isArray(data.education) ? data.education : 
-                     (typeof data.education === 'string' ? JSON.parse(data.education) : []),
-          experience: Array.isArray(data.experience) ? data.experience : 
-                      (typeof data.experience === 'string' ? JSON.parse(data.experience) : []),
-          preferred_locations: Array.isArray(data.preferred_locations) ? data.preferred_locations : [],
-          preferred_company_sizes: Array.isArray(data.preferred_company_sizes) ? data.preferred_company_sizes : [],
-        }
-
-        console.log('Formatted data to be set in state:', JSON.stringify(formattedData, null, 2))
-
-        setProfileData(formattedData)
+      const parsedData = {
+        ...data,
+        work_experience: parseJsonField(data.work_experience, []),
+        education: parseJsonField(data.education, []),
+        skills: parseJsonField(data.skills, []),
+        preferred_locations: parseJsonField(data.preferred_locations, []),
+        preferred_company_sizes: parseJsonField(data.preferred_company_sizes, []),
+        preferred_company_values: parseJsonField(data.preferred_company_values, []),
       }
+      console.log('Parsed work_experience:', parsedData.work_experience)
+      setProfileData(parsedData)
     } catch (error) {
-      console.error('Error fetching user profile:', error)
+      console.error('Error fetching profile:', error)
       toast({
         title: "Error",
-        description: "Failed to fetch user profile. Please try again.",
+        description: "Failed to fetch profile data. Please try again.",
         variant: "destructive",
       })
     }
+  }
+
+  function parseJsonField(field: any, defaultValue: any[] = []) {
+    if (Array.isArray(field)) return field
+    if (typeof field === 'string') {
+      try {
+        return JSON.parse(field)
+      } catch (error) {
+        console.error(`Error parsing JSON field: ${error}`)
+        return defaultValue
+      }
+    }
+    return defaultValue
   }
 
   const handleInputChange = (e) => {
@@ -163,36 +128,46 @@ export default function ProfilePage() {
     setProfileData(prev => ({
       ...prev,
       [name]: isChecked
-        ? [...prev[name], value]
-        : prev[name].filter((item) => item !== value)
+        ? [...(prev[name] || []), value]
+        : (prev[name] || []).filter((item) => item !== value)
     }))
   }
 
   const handleSkillAdd = () => {
-    if (newSkill && !profileData.skills.includes(newSkill)) {
+    if (newSkill && !profileData.skills?.includes(newSkill)) {
+      const updatedSkills = [...(profileData.skills || []), newSkill]
       setProfileData(prev => ({
         ...prev,
-        skills: [...prev.skills, newSkill]
+        skills: updatedSkills
       }))
       setNewSkill('')
+      handleSubmit({ skills: updatedSkills })
     }
   }
 
   const handleSkillRemove = (skill) => {
+    const updatedSkills = (profileData.skills || []).filter(s => s !== skill)
     setProfileData(prev => ({
       ...prev,
-      skills: prev.skills.filter(s => s !== skill)
+      skills: updatedSkills
     }))
+    handleSubmit({ skills: updatedSkills })
   }
 
   const handleExperienceAdd = () => {
     if (newExperience.company && newExperience.title && newExperience.start_date) {
       const id = Date.now().toString()
+      const updatedExperience = {
+        ...newExperience,
+        id,
+        start_date: format(new Date(newExperience.start_date), 'yyyy-MM-dd'),
+        end_date: newExperience.current_job ? null : (newExperience.end_date ? format(new Date(newExperience.end_date), 'yyyy-MM-dd') : null),
+      }
+      const updatedWorkExperience = [...(profileData.work_experience || []), updatedExperience]
       setProfileData(prev => ({
         ...prev,
-        experience: [...prev.experience, { ...newExperience, id }]
+        work_experience: updatedWorkExperience
       }))
-      console.log('Experience added:', { ...newExperience, id })
       setNewExperience({
         id: '',
         company: '',
@@ -203,25 +178,27 @@ export default function ProfilePage() {
         description: '',
         position_type: '',
       })
+      handleSubmit({ work_experience: updatedWorkExperience })
     }
   }
 
   const handleExperienceRemove = (id) => {
+    const updatedWorkExperience = (profileData.work_experience || []).filter(exp => exp.id !== id)
     setProfileData(prev => ({
       ...prev,
-      experience: prev.experience.filter(exp => exp.id !== id)
+      work_experience: updatedWorkExperience
     }))
-    console.log('Experience removed:', id)
+    handleSubmit({ work_experience: updatedWorkExperience })
   }
 
   const handleEducationAdd = () => {
     if (newEducation.school && newEducation.degree && newEducation.graduation_year) {
       const id = Date.now().toString()
+      const updatedEducation = [...(profileData.education || []), { ...newEducation, id }]
       setProfileData(prev => ({
         ...prev,
-        education: [...prev.education, { ...newEducation, id }]
+        education: updatedEducation
       }))
-      console.log('Education added:', { ...newEducation, id })
       setNewEducation({
         id: '',
         school: '',
@@ -231,21 +208,22 @@ export default function ProfilePage() {
         gpa: '',
         max_gpa: '4.0',
       })
+      handleSubmit({ education: updatedEducation })
     }
   }
 
   const handleEducationRemove = (id) => {
+    const updatedEducation = (profileData.education || []).filter(edu => edu.id !== id)
     setProfileData(prev => ({
       ...prev,
-      education: prev.education.filter(edu => edu.id !== id)
+      education: updatedEducation
     }))
-    console.log('Education removed:', id)
+    handleSubmit({ education: updatedEducation })
   }
 
   const handleImageChange = async (e) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
-      setImageFile(file)
 
       try {
         setUploadStatus('uploading')
@@ -254,44 +232,40 @@ export default function ProfilePage() {
           description: "Your profile picture is being uploaded.",
         })
 
-        const { data: { user } } = await supabase.auth.getUser()
         if (!user) throw new Error('No authenticated user')
 
         const fileExt = file.name.split('.').pop()
         const fileName = `${Math.random()}.${fileExt}`
         const filePath = `${user.id}/${fileName}`
 
-        let { error: uploadError, data: uploadData } = await supabase.storage
+        let { error: uploadError, data } = await supabase.storage
           .from('profile-pics')
           .upload(filePath, file)
 
         if (uploadError) {
-          console.error('Error uploading file:', uploadError)
           throw new Error(`Error uploading file: ${uploadError.message}`)
         }
 
-        if (!uploadData) throw new Error('No upload data returned')
+        if (!data) {
+          throw new Error('No data returned from upload')
+        }
 
         const { data: { publicUrl }, error: urlError } = supabase.storage
           .from('profile-pics')
-          .getPublicUrl(filePath)
+          .getPublicUrl(data.path)
 
         if (urlError) {
-          console.error('Error getting public URL:', urlError)
           throw new Error(`Error getting public URL: ${urlError.message}`)
         }
 
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ profile_photo_url: publicUrl })
-          .eq('id', user.id)
-
-        if (updateError) {
-          console.error('Error updating profile:', updateError)
-          throw new Error(`Error updating profile: ${updateError.message}`)
+        const updatedProfileData = {
+          ...profileData,
+          profile_photo_url: publicUrl
         }
 
-        setProfileData(prev => ({ ...prev, profile_photo_url: publicUrl }))
+        await updateProfile(updatedProfileData)
+
+        setProfileData(updatedProfileData)
         setImageKey(prevKey => prevKey + 1)
         setUploadStatus('success')
         toast({
@@ -310,48 +284,38 @@ export default function ProfilePage() {
     }
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const handleSubmit = async (dataToUpdate = profileData) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('No authenticated user')
+      const formattedData = {
+        ...dataToUpdate,
+        work_experience: Array.isArray(dataToUpdate.work_experience) ? dataToUpdate.work_experience : [],
+        education: Array.isArray(dataToUpdate.education) ? dataToUpdate.education : [],
+        skills: Array.isArray(dataToUpdate.skills) ? dataToUpdate.skills : [],
+        preferred_locations: Array.isArray(dataToUpdate.preferred_locations) ? dataToUpdate.preferred_locations : [],
+        preferred_company_sizes: Array.isArray(dataToUpdate.preferred_company_sizes) ? dataToUpdate.preferred_company_sizes : [],
+        preferred_company_values: Array.isArray(dataToUpdate.preferred_company_values) ? dataToUpdate.preferred_company_values : [],
+      };
 
-      const updatedProfileData = {
-        ...profileData,
-        id: user.id,
-        education: profileData.education && profileData.education.length > 0 ? profileData.education : null,
-        experience: profileData.experience && profileData.experience.length > 0 ? profileData.experience : null,
-      }
-
-      console.log('Data being sent to Supabase:', JSON.stringify(updatedProfileData, null, 2))
-
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('profiles')
-        .upsert(updatedProfileData)
-        .select()
+        .update(formattedData)
+        .eq('id', user.id);
 
-      if (error) {
-        console.error('Supabase upsert error:', error)
-        throw error
-      }
-
-      console.log('Supabase upsert result:', JSON.stringify(data, null, 2))
+      if (error) throw error;
 
       toast({
-        title: "Profile Updated",
-        description: "Your profile has been successfully updated.",
-      })
-
-      await fetchUserProfile()
+        title: "Success",
+        description: "Your profile has been updated successfully.",
+      });
     } catch (error) {
-      console.error('Error updating profile:', error)
+      console.error('Error updating profile:', error);
       toast({
         title: "Error",
         description: "Failed to update profile. Please try again.",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const getJobStatusColor = (status) => {
     switch (status) {
@@ -364,6 +328,14 @@ export default function ProfilePage() {
       default:
         return 'bg-gray-100 text-gray-800 border-gray-300'
     }
+  }
+
+  if (!profile) {
+    return <div>Error: Profile context is not available</div>
+  }
+
+  if (isLoading || !profileData) {
+    return <div>Loading profile data...</div>
   }
 
   return (
@@ -401,7 +373,7 @@ export default function ProfilePage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
-              <DropdownMenuLabel  className="font-normal">
+              <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium leading-none">{profileData.full_name}</p>
                   <p className="text-xs leading-none text-muted-foreground">
@@ -411,6 +383,7 @@ export default function ProfilePage() {
               </DropdownMenuLabel>
               <DropdownMenuItem>
                 <span className="text-blue-600">Change</span>
+              
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Personal</DropdownMenuLabel>
@@ -492,7 +465,7 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
               <Tabs defaultValue="profile" className="space-y-6">
                 <TabsList className="bg-muted">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -537,42 +510,54 @@ export default function ProfilePage() {
 
                         <section>
                           <h3 className="font-semibold mb-2">Experience</h3>
-                          {profileData.experience?.map((exp) => (
-                            <div key={exp.id} className="mb-4">
-                              <div className="flex items-center">
-                                <Briefcase className="mr-2 h-5 w-5 text-gray-500" />
-                                <h4 className="font-semibold">{exp.title}</h4>
+                          {Array.isArray(profileData.work_experience) && profileData.work_experience.length > 0 ? (
+                            profileData.work_experience.map((exp) => (
+                              <div key={exp.id} className="mb-4">
+                                <div className="flex items-center">
+                                  <Briefcase className="mr-2 h-5 w-5 text-gray-500" />
+                                  <h4 className="font-semibold">{exp.title}</h4>
+                                </div>
+                                <p className="text-gray-600 ml-7">{exp.company}</p>
+                                <p className="text-sm text-gray-500 ml-7">
+                                  {format(new Date(exp.start_date), 'MMM yyyy')} - 
+                                  {exp.current_job ? 'Present' : (exp.end_date ? format(new Date(exp.end_date), 'MMM yyyy') : '')}
+                                </p>
+                                <p className="mt-2 ml-7">{exp.description}</p>
                               </div>
-                              <p className="text-gray-600 ml-7">{exp.company}</p>
-                              <p className="text-sm text-gray-500 ml-7">
-                                {format(new Date(exp.start_date), 'MMM yyyy')} - 
-                                {exp.current_job ? 'Present' : format(new Date(exp.end_date), 'MMM yyyy')}
-                              </p>
-                              <p className="mt-2 ml-7">{exp.description}</p>
-                            </div>
-                          ))}
+                            ))
+                          ) : (
+                            <p>No work experience added yet.</p>
+                          )}
                         </section>
 
                         <section>
                           <h3 className="font-semibold mb-2">Education</h3>
-                          {profileData.education?.map((edu) => (
-                            <div key={edu.id} className="mb-2">
-                              <div className="flex items-center">
-                                <GraduationCap className="mr-2 h-5 w-5 text-gray-500" />
-                                <p>{edu.school} • {edu.graduation_year}</p>
+                          {Array.isArray(profileData.education) && profileData.education.length > 0 ? (
+                            profileData.education.map((edu) => (
+                              <div key={edu.id} className="mb-2">
+                                <div className="flex items-center">
+                                  <GraduationCap className="mr-2 h-5 w-5 text-gray-500" />
+                                  <p>{edu.school} • {edu.graduation_year}</p>
+                                </div>
+                                <p className="text-sm text-gray-500 ml-7">{edu.degree} in {edu.field_of_study}</p>
+                                {edu.gpa && <p className="text-sm text-gray-500 ml-7">GPA: {edu.gpa}/{edu.max_gpa}</p>}
                               </div>
-                              <p className="text-sm text-gray-500 ml-7">{edu.degree} in {edu.field_of_study}</p>
-                              {edu.gpa && <p className="text-sm text-gray-500 ml-7">GPA: {edu.gpa}/{edu.max_gpa}</p>}
-                            </div>
-                          ))}
+                            ))
+                          ) : (
+                            <p>No education history added yet.</p>
+                          )}
                         </section>
 
                         <section>
                           <h3 className="font-semibold mb-2">Skills</h3>
                           <div className="flex flex-wrap gap-2">
-                            {profileData.skills?.map((skill, index) => (
-                              <Badge key={index} variant="secondary">{skill}</Badge>
-                            ))}
+                            {Array.isArray(profileData.skills) && profileData.skills.length > 0 ? (
+                              profileData.skills.map((skill, index) => (
+                                <Badge key={index} variant="secondary">{skill}</Badge>
+                              ))
+                            ) : (
+                              <p>No skills added yet.</p>
+                            )}
                           </div>
                         </section>
 
@@ -597,9 +582,13 @@ export default function ProfilePage() {
                                 <span className="font-semibold">Desired Location:</span>
                               </div>
                               <div className="flex flex-wrap gap-2 ml-7">
-                                {profileData.preferred_locations?.map((location, index) => (
-                                  <Badge key={index} variant="outline">{location}</Badge>
-                                ))}
+                                {Array.isArray(profileData.preferred_locations) && profileData.preferred_locations.length > 0 ? (
+                                  profileData.preferred_locations.map((location, index) => (
+                                    <Badge key={index} variant="outline">{location}</Badge>
+                                  ))
+                                ) : (
+                                  <p>No preferred locations added yet.</p>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -751,7 +740,7 @@ export default function ProfilePage() {
                         <h3 className="text-lg font-semibold">Your Skills</h3>
                         <p className="text-sm text-muted-foreground">Add up to 20 skills</p>
                         <div className="flex flex-wrap gap-2">
-                          {profileData.skills.map((skill, index) => (
+                          {Array.isArray(profileData.skills) && profileData.skills.map((skill, index) => (
                             <Badge key={index} variant="secondary">
                               {skill}
                               <Button
@@ -783,7 +772,7 @@ export default function ProfilePage() {
                           <AccordionTrigger>Your work experience</AccordionTrigger>
                           <AccordionContent>
                             <div className="space-y-4">
-                              {profileData.experience.map((exp) => (
+                              {Array.isArray(profileData.work_experience) && profileData.work_experience.map((exp) => (
                                 <div key={exp.id} className="border p-4 rounded-md">
                                   <div className="flex justify-between items-center mb-2">
                                     <h4 className="font-semibold">{exp.title}</h4>
@@ -798,7 +787,7 @@ export default function ProfilePage() {
                                   <p>{exp.company}</p>
                                   <p className="text-sm text-gray-500">
                                     {format(new Date(exp.start_date), 'MMM yyyy')} - 
-                                    {exp.current_job ? 'Present' : format(new Date(exp.end_date), 'MMM yyyy')}
+                                    {exp.current_job ? 'Present' : (exp.end_date ? format(new Date(exp.end_date), 'MMM yyyy') : '')}
                                   </p>
                                   <p className="mt-2">{exp.description}</p>
                                 </div>
@@ -811,7 +800,7 @@ export default function ProfilePage() {
                                       id="company"
                                       placeholder="Company name"
                                       value={newExperience.company}
-                                      onChange={(e) => setNewExperience({ ...newExperience, company: e.target.value })}
+                                      onChange={(e) =>                                         setNewExperience({ ...newExperience, company: e.target.value })}
                                     />
                                   </div>
                                   <div className="space-y-2">
@@ -837,14 +826,14 @@ export default function ProfilePage() {
                                           )}
                                         >
                                           <CalendarIcon className="mr-2 h-4 w-4" />
-                                          {newExperience.start_date ? format(newExperience.start_date, "PPP") : <span>Pick a date</span>}
+                                          {newExperience.start_date ? format(new Date(newExperience.start_date), "PPP") : <span>Pick a date</span>}
                                         </Button>
                                       </PopoverTrigger>
                                       <PopoverContent className="w-auto p-0">
                                         <DayPicker
                                           mode="single"
-                                          selected={newExperience.start_date}
-                                          onSelect={(date) => setNewExperience({ ...newExperience, start_date: date })}
+                                          selected={newExperience.start_date ? new Date(newExperience.start_date) : undefined}
+                                          onSelect={(date) => setNewExperience({ ...newExperience, start_date: date ? date.toISOString() : null })}
                                           initialFocus
                                         />
                                       </PopoverContent>
@@ -863,14 +852,14 @@ export default function ProfilePage() {
                                           disabled={newExperience.current_job}
                                         >
                                           <CalendarIcon className="mr-2 h-4 w-4" />
-                                          {newExperience.end_date ? format(newExperience.end_date, "PPP") : <span>Pick a date</span>}
+                                          {newExperience.end_date ? format(new Date(newExperience.end_date), "PPP") : <span>Pick a date</span>}
                                         </Button>
                                       </PopoverTrigger>
                                       <PopoverContent className="w-auto p-0">
                                         <DayPicker
                                           mode="single"
-                                          selected={newExperience.end_date}
-                                          onSelect={(date) => setNewExperience({ ...newExperience, end_date: date })}
+                                          selected={newExperience.end_date ? new Date(newExperience.end_date) : undefined}
+                                          onSelect={(date) => setNewExperience({ ...newExperience, end_date: date ? date.toISOString() : null })}
                                           initialFocus
                                         />
                                       </PopoverContent>
@@ -924,7 +913,7 @@ export default function ProfilePage() {
                           <AccordionTrigger>Education</AccordionTrigger>
                           <AccordionContent>
                             <div className="space-y-4">
-                              {profileData.education.map((edu) => (
+                              {Array.isArray(profileData.education) && profileData.education.map((edu) => (
                                 <div key={edu.id} className="border p-4 rounded-md">
                                   <div className="flex justify-between items-center mb-2">
                                     <h4 className="font-semibold">{edu.school}</h4>
@@ -997,7 +986,7 @@ export default function ProfilePage() {
                                       id="gpa"
                                       placeholder="e.g. 3.5"
                                       value={newEducation.gpa}
-                                      onChange={(e) => setNewEducation({ ...newEducation, gpa: e.target.value  })}
+                                      onChange={(e) => setNewEducation({ ...newEducation, gpa: e.target.value })}
                                     />
                                   </div>
                                   <div className="space-y-2">
@@ -1099,7 +1088,7 @@ export default function ProfilePage() {
                               <div key={location} className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`location-${location}`}
-                                  checked={profileData.preferred_locations.includes(location)}
+                                  checked={profileData.preferred_locations?.includes(location)}
                                   onCheckedChange={(checked) => handleArrayChange('preferred_locations', location, checked)}
                                 />
                                 <label
@@ -1164,7 +1153,7 @@ export default function ProfilePage() {
                               <div key={size} className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`company-size-${size}`}
-                                  checked={profileData.preferred_company_sizes.includes(size)}
+                                  checked={profileData.preferred_company_sizes?.includes(size)}
                                   onCheckedChange={(checked) => handleArrayChange('preferred_company_sizes', size, checked)}
                                 />
                                 <label

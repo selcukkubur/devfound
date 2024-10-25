@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useRouter } from 'next/navigation'
+import { ProfileProvider } from './contexts/ProfileContext'
+import { Toaster } from "@/components/ui/toaster"
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
@@ -28,5 +30,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return <div>Loading...</div>
   }
 
-  return <>{children}</>
+  return (
+    <ProfileProvider>
+      {children}
+      <Toaster />
+    </ProfileProvider>
+  )
 }
