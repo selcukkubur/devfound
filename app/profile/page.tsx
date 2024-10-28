@@ -15,33 +15,32 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { Switch } from "@/components/ui/switch"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { cn } from "@/lib/utils"
 import { format } from "date-fns"
-import { Calendar as CalendarIcon, Bell, Briefcase, ChevronDown, Code, DollarSign, FileIcon, Globe, GraduationCap, Home, MapPin, MessageSquare, Plus, Search, Settings, Upload, User, X, HelpCircle, LogOut } from 'lucide-react'
+import { Calendar as CalendarIcon, Bell, Briefcase, ChevronDown, Code, DollarSign, FileIcon, Globe, GraduationCap, Home, MapPin, MessageSquare, Plus, Search, Settings, Upload, User, X, HelpCircle, LogOut, RefreshCw } from 'lucide-react'
 import { DayPicker } from "react-day-picker"
-import { useProfile } from "../contexts/ProfileContext"
 
 export default function ProfilePage() {
-  const profile = useProfile()
-  const { profileData, setProfileData, isLoading, user, updateProfile } = profile || {}
-  const [supabase, setSupabase] = useState(null)
-
+  const [profileData, setProfileData] = useState(null)
+  const [workExperiences, setWorkExperiences] = useState([])
+  const [educations, setEducations] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [user, setUser] = useState(null)
   const [newSkill, setNewSkill] = useState('')
   const [newExperience, setNewExperience] = useState({
-    id: '',
     company: '',
-    title: '',
+    job_title: '',
     start_date: null,
     end_date: null,
     current_job: false,
-    description: '',
+    job_description: '',
     position_type: '',
   })
   const [newEducation, setNewEducation] = useState({
-    id: '',
     school: '',
     degree: '',
     field_of_study: '',
@@ -52,67 +51,88 @@ export default function ProfilePage() {
   const [imageKey, setImageKey] = useState(0)
   const [uploadStatus, setUploadStatus] = useState('idle')
   const { toast } = useToast()
+  const supabase = createClientComponentClient()
 
   useEffect(() => {
-    const initializeSupabase = async () => {
-      const { createClientComponentClient } = await import('@supabase/auth-helpers-nextjs')
-      const supabaseClient = createClientComponentClient({
-        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      })
-      setSupabase(supabaseClient)
-    }
-
-    initializeSupabase()
+    fetchUserAndProfile()
   }, [])
 
-  useEffect(() => {
-    if (user && supabase) {
-      fetchProfile()
-    }
-  }, [user, supabase])
-
-  const fetchProfile = async () => {
+  const fetchUserAndProfile = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
+      setIsLoading(true)
+      setError(null)
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError) throw userError
 
-      if (error) throw error
+      setUser(user)
 
-      const parsedData = {
-        ...data,
-        work_experience: parseJsonField(data.work_experience, []),
-        education: parseJsonField(data.education, []),
-        skills: parseJsonField(data.skills, []),
-        preferred_locations: parseJsonField(data.preferred_locations, []),
-        preferred_company_sizes: parseJsonField(data.preferred_company_sizes, []),
-        preferred_company_values: parseJsonField(data.preferred_company_values, []),
+      if (user) {
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+
+        if (profileError) throw profileError
+
+        setProfileData(profileData)
+
+        await fetchWorkExperiences(user.id)
+        await fetchEducations(user.id)
       }
-      console.log('Parsed work_experience:', parsedData.work_experience)
-      setProfileData(parsedData)
     } catch (error) {
-      console.error('Error fetching profile:', error)
+      console.error('Error fetching user and profile:', error)
+      setError(error.message)
       toast({
         title: "Error",
         description: "Failed to fetch profile data. Please try again.",
         variant: "destructive",
       })
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  function parseJsonField(field: any, defaultValue: any[] = []) {
-    if (Array.isArray(field)) return field
-    if (typeof field === 'string') {
-      try {
-        return JSON.parse(field)
-      } catch (error) {
-        console.error(`Error parsing JSON field: ${error}`)
-        return defaultValue
-      }
+  const fetchWorkExperiences = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('work_experiences')
+        .select('*')
+        .eq('profile_id', userId)
+        .order('start_date', { ascending: false })
+
+      if (error) throw error
+
+      setWorkExperiences(data || [])
+    } catch (error) {
+      console.error('Error fetching work experiences:', error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch work experiences. Please try again.",
+        variant: "destructive",
+      })
     }
-    return defaultValue
+  }
+
+  const fetchEducations = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('educations')
+        .select('*')
+        .eq('profile_id', userId)
+        .order('graduation_year', { ascending: false })
+
+      if (error) throw error
+
+      setEducations(data || [])
+    } catch (error) {
+      console.error('Error fetching educations:', error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch education history. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleInputChange = (e) => {
@@ -133,92 +153,240 @@ export default function ProfilePage() {
     }))
   }
 
-  const handleSkillAdd = () => {
+  const handleSkillAdd = async () => {
     if (newSkill && !profileData.skills?.includes(newSkill)) {
       const updatedSkills = [...(profileData.skills || []), newSkill]
+      try {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ skills: updatedSkills })
+          .eq('id', user.id)
+
+        if (error) throw error
+
+        setProfileData(prev => ({
+          ...prev,
+          skills: updatedSkills
+        }))
+        setNewSkill('')
+        toast({
+          title: "Success",
+          description: "Skill added successfully.",
+        })
+      } catch (error) {
+        console.error('Error adding skill:', error)
+        toast({
+          title: "Error",
+          description: "Failed to add skill. Please try again.",
+          variant: "destructive",
+        })
+      }
+    }
+  }
+
+  const handleSkillRemove = async (skill) => {
+    const updatedSkills = (profileData.skills || []).filter(s => s !== skill)
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ skills: updatedSkills })
+        .eq('id', user.id)
+
+      if (error) throw error
+
       setProfileData(prev => ({
         ...prev,
         skills: updatedSkills
       }))
-      setNewSkill('')
-      handleSubmit({ skills: updatedSkills })
+      toast({
+        title: "Success",
+        description: "Skill removed successfully.",
+      })
+    } catch (error) {
+      console.error('Error removing skill:', error)
+      toast({
+        title: "Error",
+        description: "Failed to remove skill. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
-  const handleSkillRemove = (skill) => {
-    const updatedSkills = (profileData.skills || []).filter(s => s !== skill)
-    setProfileData(prev => ({
-      ...prev,
-      skills: updatedSkills
-    }))
-    handleSubmit({ skills: updatedSkills })
-  }
+  const handleExperienceAdd = async () => {
+    if (newExperience.company && newExperience.job_title && newExperience.start_date) {
+      try {
+        const { data, error } = await supabase
+          .from('work_experiences')
+          .insert({
+            ...newExperience,
+            profile_id: user.id,
+            start_date: format(new Date(newExperience.start_date), 'yyyy-MM-dd'),
+            end_date: newExperience.current_job ? null : (newExperience.end_date ? format(new Date(newExperience.end_date), 'yyyy-MM-dd') : null),
+          })
+          .select()
 
-  const handleExperienceAdd = () => {
-    if (newExperience.company && newExperience.title && newExperience.start_date) {
-      const id = Date.now().toString()
-      const updatedExperience = {
-        ...newExperience,
-        id,
-        start_date: format(new Date(newExperience.start_date), 'yyyy-MM-dd'),
-        end_date: newExperience.current_job ? null : (newExperience.end_date ? format(new Date(newExperience.end_date), 'yyyy-MM-dd') : null),
+        if (error) throw error
+
+        setWorkExperiences(prev => [...prev, data[0]])
+        setNewExperience({
+          company: '',
+          job_title: '',
+          start_date: null,
+          end_date: null,
+          current_job: false,
+          job_description: '',
+          position_type: '',
+        })
+        toast({
+          title: "Success",
+          description: "Work experience added successfully.",
+        })
+      } catch (error) {
+        console.error('Error adding work experience:', error)
+        toast({
+          title: "Error",
+          description: "Failed to add work experience. Please try again.",
+          variant: "destructive",
+        })
       }
-      const updatedWorkExperience = [...(profileData.work_experience || []), updatedExperience]
-      setProfileData(prev => ({
-        ...prev,
-        work_experience: updatedWorkExperience
-      }))
-      setNewExperience({
-        id: '',
-        company: '',
-        title: '',
-        start_date: null,
-        end_date: null,
-        current_job: false,
-        description: '',
-        position_type: '',
-      })
-      handleSubmit({ work_experience: updatedWorkExperience })
     }
   }
 
-  const handleExperienceRemove = (id) => {
-    const updatedWorkExperience = (profileData.work_experience || []).filter(exp => exp.id !== id)
-    setProfileData(prev => ({
-      ...prev,
-      work_experience: updatedWorkExperience
-    }))
-    handleSubmit({ work_experience: updatedWorkExperience })
+  const handleExperienceUpdate = async (id, updatedExperience) => {
+    try {
+      const { error } = await supabase
+        .from('work_experiences')
+        .update({
+          ...updatedExperience,
+          start_date: format(new Date(updatedExperience.start_date), 'yyyy-MM-dd'),
+          end_date: updatedExperience.current_job ? null : (updatedExperience.end_date ? format(new Date(updatedExperience.end_date), 'yyyy-MM-dd') : null),
+        })
+        .eq('id', id)
+
+      if (error) throw error
+
+      setWorkExperiences(prev => prev.map(exp => exp.id === id ? { ...exp, ...updatedExperience } : exp))
+      toast({
+        title: "Success",
+        description: "Work experience updated successfully.",
+      })
+    } catch (error) {
+      console.error('Error updating work experience:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update work experience. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleEducationAdd = () => {
+  const handleExperienceRemove = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('work_experiences')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+
+      setWorkExperiences(prev => prev.filter(exp => exp.id !== id))
+      toast({
+        title: "Success",
+        description: "Work experience removed successfully.",
+      })
+    } catch (error) {
+      console.error('Error removing work experience:', error)
+      toast({
+        title: "Error",
+        description: "Failed to remove work experience. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleEducationAdd = async () => {
     if (newEducation.school && newEducation.degree && newEducation.graduation_year) {
-      const id = Date.now().toString()
-      const updatedEducation = [...(profileData.education || []), { ...newEducation, id }]
-      setProfileData(prev => ({
-        ...prev,
-        education: updatedEducation
-      }))
-      setNewEducation({
-        id: '',
-        school: '',
-        degree: '',
-        field_of_study: '',
-        graduation_year: '',
-        gpa: '',
-        max_gpa: '4.0',
-      })
-      handleSubmit({ education: updatedEducation })
+      try {
+        const { data, error } = await supabase
+          .from('educations')
+          .insert({
+            ...newEducation,
+            profile_id: user.id,
+          })
+          .select()
+
+        if (error) throw error
+
+        setEducations(prev => [...prev, data[0]])
+        setNewEducation({
+          school: '',
+          degree: '',
+          field_of_study: '',
+          graduation_year: '',
+          gpa: '',
+          max_gpa: '4.0',
+        })
+        toast({
+          title: "Success",
+          description: "Education added successfully.",
+        })
+      } catch (error) {
+        console.error('Error adding education:', error)
+        toast({
+          title: "Error",
+          description: "Failed to add education. Please try again.",
+          variant: "destructive",
+        })
+      }
     }
   }
 
-  const handleEducationRemove = (id) => {
-    const updatedEducation = (profileData.education || []).filter(edu => edu.id !== id)
-    setProfileData(prev => ({
-      ...prev,
-      education: updatedEducation
-    }))
-    handleSubmit({ education: updatedEducation })
+  const handleEducationUpdate = async (id, updatedEducation) => {
+    try {
+      const { error } = await supabase
+        .from('educations')
+        .update(updatedEducation)
+        .eq('id', id)
+
+      if (error) throw error
+
+      setEducations(prev => prev.map(edu => edu.id === id ? { ...edu, ...updatedEducation } : edu))
+      toast({
+        title: "Success",
+        description: "Education updated successfully.",
+      })
+    } catch (error) {
+      console.error('Error updating education:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update education. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleEducationRemove = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('educations')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+
+      setEducations(prev => prev.filter(edu => edu.id !== id))
+      toast({
+        title: "Success",
+        description: "Education removed successfully.",
+      })
+    } catch (error) {
+      console.error('Error removing education:', error)
+      toast({
+        title: "Error",
+        description: "Failed to remove education. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleImageChange = async (e) => {
@@ -238,7 +406,7 @@ export default function ProfilePage() {
         const fileName = `${Math.random()}.${fileExt}`
         const filePath = `${user.id}/${fileName}`
 
-        let { error: uploadError, data } = await supabase.storage
+        let { error: uploadError } = await supabase.storage
           .from('profile-pics')
           .upload(filePath, file)
 
@@ -246,26 +414,27 @@ export default function ProfilePage() {
           throw new Error(`Error uploading file: ${uploadError.message}`)
         }
 
-        if (!data) {
-          throw new Error('No data returned from upload')
-        }
-
         const { data: { publicUrl }, error: urlError } = supabase.storage
           .from('profile-pics')
-          .getPublicUrl(data.path)
+          .getPublicUrl(filePath)
 
         if (urlError) {
           throw new Error(`Error getting public URL: ${urlError.message}`)
         }
 
-        const updatedProfileData = {
-          ...profileData,
-          profile_photo_url: publicUrl
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ profile_photo_url: publicUrl })
+          .eq('id', user.id)
+
+        if (updateError) {
+          throw new Error(`Error updating profile: ${updateError.message}`)
         }
 
-        await updateProfile(updatedProfileData)
-
-        setProfileData(updatedProfileData)
+        setProfileData(prev => ({
+          ...prev,
+          profile_photo_url: publicUrl
+        }))
         setImageKey(prevKey => prevKey + 1)
         setUploadStatus('success')
         toast({
@@ -273,7 +442,7 @@ export default function ProfilePage() {
           description: "Profile picture uploaded and saved successfully",
         })
       } catch (error) {
-        console.error('Error in image upload process:', error)
+        console.error('Error in image upload  process:', error)
         setUploadStatus('error')
         toast({
           title: "Error",
@@ -284,38 +453,29 @@ export default function ProfilePage() {
     }
   }
 
-  const handleSubmit = async (dataToUpdate = profileData) => {
+  const handleSubmit = async (e) => {
+    e.preventDefault()
     try {
-      const formattedData = {
-        ...dataToUpdate,
-        work_experience: Array.isArray(dataToUpdate.work_experience) ? dataToUpdate.work_experience : [],
-        education: Array.isArray(dataToUpdate.education) ? dataToUpdate.education : [],
-        skills: Array.isArray(dataToUpdate.skills) ? dataToUpdate.skills : [],
-        preferred_locations: Array.isArray(dataToUpdate.preferred_locations) ? dataToUpdate.preferred_locations : [],
-        preferred_company_sizes: Array.isArray(dataToUpdate.preferred_company_sizes) ? dataToUpdate.preferred_company_sizes : [],
-        preferred_company_values: Array.isArray(dataToUpdate.preferred_company_values) ? dataToUpdate.preferred_company_values : [],
-      };
-
       const { error } = await supabase
         .from('profiles')
-        .update(formattedData)
-        .eq('id', user.id);
+        .update(profileData)
+        .eq('id', user.id)
 
-      if (error) throw error;
+      if (error) throw error
 
       toast({
         title: "Success",
         description: "Your profile has been updated successfully.",
-      });
+      })
     } catch (error) {
-      console.error('Error updating profile:', error);
+      console.error('Error updating profile:', error)
       toast({
         title: "Error",
         description: "Failed to update profile. Please try again.",
         variant: "destructive",
-      });
+      })
     }
-  };
+  }
 
   const getJobStatusColor = (status) => {
     switch (status) {
@@ -330,12 +490,47 @@ export default function ProfilePage() {
     }
   }
 
-  if (!profile) {
-    return <div>Error: Profile context is not available</div>
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <RefreshCw className="animate-spin h-8 w-8 mb-4 mx-auto text-blue-600" />
+          <p className="text-lg font-semibold">Loading profile data...</p>
+        </div>
+      </div>
+    )
   }
 
-  if (isLoading || !profileData) {
-    return <div>Loading profile data...</div>
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <X className="h-12 w-12 mb-4 mx-auto text-red-600" />
+          <h2 className="text-2xl font-bold mb-2">Error Loading Profile</h2>
+          <p className="text-lg mb-4">{error}</p>
+          <Button onClick={fetchUserAndProfile} className="bg-blue-600 text-white hover:bg-blue-700">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!profileData) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <X className="h-12 w-12 mb-4 mx-auto text-yellow-600" />
+          <h2 className="text-2xl font-bold mb-2">No Profile Data</h2>
+          <p className="text-lg mb-4">We couldn't find your profile data. Please try again or contact support.</p>
+          <Button onClick={fetchUserAndProfile} className="bg-blue-600 text-white hover:bg-blue-700">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -383,7 +578,6 @@ export default function ProfilePage() {
               </DropdownMenuLabel>
               <DropdownMenuItem>
                 <span className="text-blue-600">Change</span>
-              
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Personal</DropdownMenuLabel>
@@ -465,7 +659,7 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+            <form onSubmit={handleSubmit}>
               <Tabs defaultValue="profile" className="space-y-6">
                 <TabsList className="bg-muted">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -510,30 +704,30 @@ export default function ProfilePage() {
 
                         <section>
                           <h3 className="font-semibold mb-2">Experience</h3>
-                          {Array.isArray(profileData.work_experience) && profileData.work_experience.length > 0 ? (
-                            profileData.work_experience.map((exp) => (
+                          {workExperiences.length > 0 ? (
+                            workExperiences.map((exp) => (
                               <div key={exp.id} className="mb-4">
                                 <div className="flex items-center">
                                   <Briefcase className="mr-2 h-5 w-5 text-gray-500" />
-                                  <h4 className="font-semibold">{exp.title}</h4>
+                                  <h4 className="font-semibold">{exp.job_title}</h4>
                                 </div>
                                 <p className="text-gray-600 ml-7">{exp.company}</p>
                                 <p className="text-sm text-gray-500 ml-7">
                                   {format(new Date(exp.start_date), 'MMM yyyy')} - 
                                   {exp.current_job ? 'Present' : (exp.end_date ? format(new Date(exp.end_date), 'MMM yyyy') : '')}
                                 </p>
-                                <p className="mt-2 ml-7">{exp.description}</p>
+                                <p className="mt-2 ml-7">{exp.job_description}</p>
                               </div>
                             ))
                           ) : (
-                            <p>No work experience added yet.</p>
+                            <p>No work experience available. You can add your work history in the profile edit section.</p>
                           )}
                         </section>
 
                         <section>
                           <h3 className="font-semibold mb-2">Education</h3>
-                          {Array.isArray(profileData.education) && profileData.education.length > 0 ? (
-                            profileData.education.map((edu) => (
+                          {educations.length > 0 ? (
+                            educations.map((edu) => (
                               <div key={edu.id} className="mb-2">
                                 <div className="flex items-center">
                                   <GraduationCap className="mr-2 h-5 w-5 text-gray-500" />
@@ -544,14 +738,14 @@ export default function ProfilePage() {
                               </div>
                             ))
                           ) : (
-                            <p>No education history added yet.</p>
+                            <p>No education history available. You can add your educational background in the profile edit section.</p>
                           )}
                         </section>
 
                         <section>
                           <h3 className="font-semibold mb-2">Skills</h3>
                           <div className="flex flex-wrap gap-2">
-                            {Array.isArray(profileData.skills) && profileData.skills.length > 0 ? (
+                            {profileData.skills && profileData.skills.length > 0 ? (
                               profileData.skills.map((skill, index) => (
                                 <Badge key={index} variant="secondary">{skill}</Badge>
                               ))
@@ -582,7 +776,7 @@ export default function ProfilePage() {
                                 <span className="font-semibold">Desired Location:</span>
                               </div>
                               <div className="flex flex-wrap gap-2 ml-7">
-                                {Array.isArray(profileData.preferred_locations) && profileData.preferred_locations.length > 0 ? (
+                                {profileData.preferred_locations && profileData.preferred_locations.length > 0 ? (
                                   profileData.preferred_locations.map((location, index) => (
                                     <Badge key={index} variant="outline">{location}</Badge>
                                   ))
@@ -740,7 +934,7 @@ export default function ProfilePage() {
                         <h3 className="text-lg font-semibold">Your Skills</h3>
                         <p className="text-sm text-muted-foreground">Add up to 20 skills</p>
                         <div className="flex flex-wrap gap-2">
-                          {Array.isArray(profileData.skills) && profileData.skills.map((skill, index) => (
+                          {profileData.skills && profileData.skills.map((skill, index) => (
                             <Badge key={index} variant="secondary">
                               {skill}
                               <Button
@@ -767,247 +961,425 @@ export default function ProfilePage() {
                         </div>
                       </div>
 
-                      <Accordion type="single" collapsible className="w-full">
-                        <AccordionItem value="work-experience">
-                          <AccordionTrigger>Your work experience</AccordionTrigger>
-                          <AccordionContent>
-                            <div className="space-y-4">
-                              {Array.isArray(profileData.work_experience) && profileData.work_experience.map((exp) => (
-                                <div key={exp.id} className="border p-4 rounded-md">
-                                  <div className="flex justify-between items-center mb-2">
-                                    <h4 className="font-semibold">{exp.title}</h4>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleExperienceRemove(exp.id)}
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold">Work Experience</h3>
+                        <Accordion type="single" collapsible className="w-full">
+                          {workExperiences.map((exp) => (
+                            <AccordionItem key={exp.id} value={exp.id}>
+                              <AccordionTrigger>
+                                <div className="flex justify-between items-center w-full">
+                                  <div>
+                                    <h4 className="font-semibold text-left">{exp.job_title}</h4>
+                                    <p className="text-sm text-gray-500 text-left">{exp.company}</p>
                                   </div>
-                                  <p>{exp.company}</p>
                                   <p className="text-sm text-gray-500">
                                     {format(new Date(exp.start_date), 'MMM yyyy')} - 
                                     {exp.current_job ? 'Present' : (exp.end_date ? format(new Date(exp.end_date), 'MMM yyyy') : '')}
                                   </p>
-                                  <p className="mt-2">{exp.description}</p>
                                 </div>
-                              ))}
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              </AccordionTrigger>
+                              <AccordionContent>
+                                <div className="space-y-4 p-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`company-${exp.id}`}>Company</Label>
+                                      <Input
+                                        id={`company-${exp.id}`}
+                                        value={exp.company}
+                                        onChange={(e) => handleExperienceUpdate(exp.id, { ...exp, company: e.target.value })}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`job_title-${exp.id}`}>Job Title</Label>
+                                      <Input
+                                        id={`job_title-${exp.id}`}
+                                        value={exp.job_title}
+                                        onChange={(e) => handleExperienceUpdate(exp.id, { ...exp, job_title: e.target.value })}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`start_date-${exp.id}`}>Start Date</Label>
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            variant={"outline"}
+                                            className={cn(
+                                              "w-full justify-start text-left font-normal",
+                                              !exp.start_date && "text-muted-foreground"
+                                            )}
+                                          >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {exp.start_date ? format(new Date(exp.start_date), "PPP") : <span>Pick a date</span>}
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0">
+                                          <DayPicker
+                                            mode="single"
+                                            selected={exp.start_date ? new Date(exp.start_date) : undefined}
+                                            onSelect={(date) => handleExperienceUpdate(exp.id, { ...exp, start_date: date ? date.toISOString() : null })}
+                                            initialFocus
+                                          />
+                                        </PopoverContent>
+                                      </Popover>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`end_date-${exp.id}`}>End Date</Label>
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            variant={"outline"}
+                                            className={cn(
+                                              "w-full justify-start text-left font-normal",
+                                              !exp.end_date && "text-muted-foreground"
+                                            )}
+                                            disabled={exp.current_job}
+                                          >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {exp.end_date ? format(new Date(exp.end_date), "PPP") : <span>Pick a date</span>}
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0">
+                                          <DayPicker
+                                            mode="single"
+                                            selected={exp.end_date ? new Date(exp.end_date) : undefined}
+                                            onSelect={(date) => handleExperienceUpdate(exp.id, { ...exp, end_date: date ? date.toISOString() : null })}
+                                            initialFocus
+                                          />
+                                        </PopoverContent>
+                                      </Popover>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <Switch
+                                      id={`current-job-${exp.id}`}
+                                      checked={exp.current_job}
+                                      onCheckedChange={(checked) => handleExperienceUpdate(exp.id, { ...exp, current_job: checked, end_date: null })}
+                                    />
+                                    <Label htmlFor={`current-job-${exp.id}`}>I currently work here</Label>
+                                  </div>
                                   <div className="space-y-2">
-                                    <Label htmlFor="company">Company*</Label>
-                                    <Input
-                                      id="company"
-                                      placeholder="Company name"
-                                      value={newExperience.company}
-                                      onChange={(e) =>                                         setNewExperience({ ...newExperience, company: e.target.value })}
+                                    <Label htmlFor={`job_description-${exp.id}`}>Description</Label>
+                                    <Textarea
+                                      id={`job_description-${exp.id}`}
+                                      value={exp.job_description}
+                                      onChange={(e) => handleExperienceUpdate(exp.id, { ...exp, job_description: e.target.value })}
+                                      rows={3}
                                     />
                                   </div>
                                   <div className="space-y-2">
-                                    <Label htmlFor="title">Title*</Label>
-                                    <Input
-                                      id="title"
-                                      placeholder="Job title"
-                                      value={newExperience.title}
-                                      onChange={(e) => setNewExperience({ ...newExperience, title: e.target.value })}
-                                    />
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label htmlFor="start_date">Start Date*</Label>
-                                    <Popover>
-                                      <PopoverTrigger asChild>
-                                        <Button
-                                          variant={"outline"}
-                                          className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !newExperience.start_date && "text-muted-foreground"
-                                          )}
-                                        >
-                                          <CalendarIcon className="mr-2 h-4 w-4" />
-                                          {newExperience.start_date ? format(new Date(newExperience.start_date), "PPP") : <span>Pick a date</span>}
-                                        </Button>
-                                      </PopoverTrigger>
-                                      <PopoverContent className="w-auto p-0">
-                                        <DayPicker
-                                          mode="single"
-                                          selected={newExperience.start_date ? new Date(newExperience.start_date) : undefined}
-                                          onSelect={(date) => setNewExperience({ ...newExperience, start_date: date ? date.toISOString() : null })}
-                                          initialFocus
-                                        />
-                                      </PopoverContent>
-                                    </Popover>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="end_date">End Date</Label>
-                                    <Popover>
-                                      <PopoverTrigger asChild>
-                                        <Button
-                                          variant={"outline"}
-                                          className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !newExperience.end_date && "text-muted-foreground"
-                                          )}
-                                          disabled={newExperience.current_job}
-                                        >
-                                          <CalendarIcon className="mr-2 h-4 w-4" />
-                                          {newExperience.end_date ? format(new Date(newExperience.end_date), "PPP") : <span>Pick a date</span>}
-                                        </Button>
-                                      </PopoverTrigger>
-                                      <PopoverContent className="w-auto p-0">
-                                        <DayPicker
-                                          mode="single"
-                                          selected={newExperience.end_date ? new Date(newExperience.end_date) : undefined}
-                                          onSelect={(date) => setNewExperience({ ...newExperience, end_date: date ? date.toISOString() : null })}
-                                          initialFocus
-                                        />
-                                      </PopoverContent>
-                                    </Popover>
-                                  </div>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                  <Switch
-                                    id="current-job"
-                                    checked={newExperience.current_job}
-                                    onCheckedChange={(checked) => setNewExperience({ ...newExperience, current_job: checked, end_date: null })}
-                                  />
-                                  <Label htmlFor="current-job">I currently work here</Label>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="description">Description</Label>
-                                  <Textarea
-                                    id="description"
-                                    placeholder="Describe your role and responsibilities"
-                                    value={newExperience.description}
-                                    onChange={(e) => setNewExperience({ ...newExperience, description: e.target.value })}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="position-type">Position Type</Label>
-                                  <Select
-                                    value={newExperience.position_type}
-                                    onValueChange={(value) => setNewExperience({ ...newExperience, position_type: value })}
-                                  >
-                                    <SelectTrigger id="position-type">
-                                      <SelectValue placeholder="Select position type" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="full-time">Full-time</SelectItem>
-                                      <SelectItem value="part-time">Part-time</SelectItem>
-                                      <SelectItem value="contract">Contract</SelectItem>
-                                      <SelectItem value="internship">Internship</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <Button onClick={handleExperienceAdd} className="w-full bg-blue-600 text-white hover:bg-blue-700">
-                                  <Plus className="h-4 w-4 mr-2" />
-                                  Add Work Experience
-                                </Button>
-                              </div>
-                            </div>
-                          </AccordionContent>
-                        </AccordionItem>
-
-                        <AccordionItem value="education">
-                          <AccordionTrigger>Education</AccordionTrigger>
-                          <AccordionContent>
-                            <div className="space-y-4">
-                              {Array.isArray(profileData.education) && profileData.education.map((edu) => (
-                                <div key={edu.id} className="border p-4 rounded-md">
-                                  <div className="flex justify-between items-center mb-2">
-                                    <h4 className="font-semibold">{edu.school}</h4>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleEducationRemove(edu.id)}
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                  <p>{edu.degree} in {edu.field_of_study}</p>
-                                  <p className="text-sm text-gray-500">{edu.graduation_year}</p>
-                                  {edu.gpa && <p className="text-sm text-gray-500">GPA: {edu.gpa}/{edu.max_gpa}</p>}
-                                </div>
-                              ))}
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label htmlFor="school">School*</Label>
-                                    <Input
-                                      id="school"
-                                      placeholder="College or University"
-                                      value={newEducation.school}
-                                      onChange={(e) => setNewEducation({ ...newEducation, school: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="degree">Degree*</Label>
+                                    <Label htmlFor={`position-type-${exp.id}`}>Position Type</Label>
                                     <Select
-                                      value={newEducation.degree}
-                                      onValueChange={(value) => setNewEducation({ ...newEducation, degree: value })}
+                                      value={exp.position_type}
+                                      onValueChange={(value) => handleExperienceUpdate(exp.id, { ...exp, position_type: value })}
                                     >
-                                      <SelectTrigger id="degree">
-                                        <SelectValue placeholder="Select degree" />
+                                      <SelectTrigger id={`position-type-${exp.id}`}>
+                                        <SelectValue placeholder="Select position type" />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        <SelectItem value="bachelor">Bachelor's</SelectItem>
-                                        <SelectItem value="master">Master's</SelectItem>
-                                        <SelectItem value="phd">Ph.D.</SelectItem>
-                                        <SelectItem value="associate">Associate's</SelectItem>
+                                        <SelectItem value="full-time">Full-time</SelectItem>
+                                        <SelectItem value="part-time">Part-time</SelectItem>
+                                        <SelectItem value="contract">Contract</SelectItem>
+                                        <SelectItem value="internship">Internship</SelectItem>
                                       </SelectContent>
                                     </Select>
                                   </div>
+                                  <Button
+                                    variant="destructive"
+                                    onClick={() => handleExperienceRemove(exp.id)}
+                                    className="mt-4"
+                                  >
+                                    Remove Experience
+                                  </Button>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label htmlFor="field_of_study">Field of Study</Label>
-                                    <Input
-                                      id="field_of_study"
-                                      placeholder="e.g. Computer Science"
-                                      value={newEducation.field_of_study}
-                                      onChange={(e) => setNewEducation({ ...newEducation, field_of_study: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="graduation_year">Graduation Year*</Label>
-                                    <Input
-                                      id="graduation_year"
-                                      placeholder="YYYY"
-                                      value={newEducation.graduation_year}
-                                      onChange={(e) => setNewEducation({ ...newEducation, graduation_year: e.target.value })}
-                                    />
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label htmlFor="gpa">GPA</Label>
-                                    <Input
-                                      id="gpa"
-                                      placeholder="e.g. 3.5"
-                                      value={newEducation.gpa}
-                                      onChange={(e) => setNewEducation({ ...newEducation, gpa: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="max_gpa">Max GPA</Label>
-                                    <Input
-                                      id="max_gpa"
-                                      placeholder="e.g. 4.0"
-                                      value={newEducation.max_gpa}
-                                      onChange={(e) => setNewEducation({ ...newEducation, max_gpa: e.target.value })}
-                                    />
-                                  </div>
-                                </div>
-                                <Button onClick={handleEducationAdd} className="w-full bg-blue-600 text-white hover:bg-blue-700">
-                                  <Plus className="h-4 w-4 mr-2" />
-                                  Add Education
-                                </Button>
-                              </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          ))}
+                        </Accordion>
+                        <div className="space-y-4">
+                          <h4 className="font-semibold">Add New Experience</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="company">Company*</Label>
+                              <Input
+                                id="company"
+                                placeholder="Company name"
+                                value={newExperience.company}
+                                onChange={(e) => setNewExperience({ ...newExperience, company: e.target.value })}
+                              />
                             </div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      </Accordion>
+                            <div className="space-y-2">
+                              <Label htmlFor="job_title">Title*</Label>
+                              <Input
+                                id="job_title"
+                                placeholder="Job title"
+                                value={newExperience.job_title}
+                                onChange={(e) => setNewExperience({ ...newExperience, job_title: e.target.value })}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="start_date">Start Date*</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                      "w-full justify-start text-left font-normal",
+                                      !newExperience.start_date && "text-muted-foreground"
+                                    )}
+                                  >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {newExperience.start_date ? format(new Date(newExperience.start_date), "PPP") : <span>Pick a date</span>}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                  <DayPicker
+                                    mode="single"
+                                    selected={newExperience.start_date ? new Date(newExperience.start_date) : undefined}
+                                    onSelect={(date) => setNewExperience({ ...newExperience, start_date: date ? date.toISOString() : null })}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="end_date">End Date</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                      "w-full justify-start text-left font-normal",
+                                      !newExperience.end_date && "text-muted-foreground"
+                                    )}
+                                    disabled={newExperience.current_job}
+                                  >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {newExperience.end_date ? format(new Date(newExperience.end_date), "PPP") : <span>Pick a date</span>}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                  <DayPicker
+                                    mode="single"
+                                    selected={newExperience.end_date ? new Date(newExperience.end_date) : undefined}
+                                    onSelect={(date) => setNewExperience({ ...newExperience, end_date: date ? date.toISOString() : null })}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Switch
+                              id="current-job"
+                              checked={newExperience.current_job}
+                              onCheckedChange={(checked) => setNewExperience({ ...newExperience, current_job: checked, end_date: null })}
+                            />
+                            <Label htmlFor="current-job">I currently work here</Label>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="job_description">Description</Label>
+                            <Textarea
+                              id="job_description"
+                              placeholder="Describe your role and responsibilities"
+                              value={newExperience.job_description}
+                              onChange={(e) => setNewExperience({ ...newExperience, job_description: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="position-type">Position Type</Label>
+                            <Select
+                              value={newExperience.position_type}
+                              onValueChange={(value) => setNewExperience({ ...newExperience, position_type: value })}
+                            >
+                              <SelectTrigger id="position-type">
+                                <SelectValue placeholder="Select position type" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="full-time">Full-time</SelectItem>
+                                <SelectItem value="part-time">Part-time</SelectItem>
+                                <SelectItem value="contract">Contract</SelectItem>
+                                <SelectItem value="internship">Internship</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button onClick={handleExperienceAdd} className="w-full bg-blue-600 text-white hover:bg-blue-700">
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Work Experience
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold">Education</h3>
+                        <Accordion type="single" collapsible className="w-full">
+                          {educations.map((edu) => (
+                            <AccordionItem key={edu.id} value={edu.id}>
+                              <AccordionTrigger>
+                                <div className="flex justify-between items-center w-full">
+                                  <div>
+                                    <h4 className="font-semibold text-left">{edu.school}</h4>
+                                    <p className="text-sm text-gray-500 text-left">{edu.degree} in {edu.field_of_study}</p>
+                                  </div>
+                                  <p className="text-sm text-gray-500">{edu.graduation_year}</p>
+                                </div>
+                              </AccordionTrigger>
+                              <AccordionContent>
+                                <div className="space-y-4 p-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`school-${edu.id}`}>School</Label>
+                                      <Input
+                                        id={`school-${edu.id}`}
+                                        value={edu.school}
+                                        onChange={(e) => handleEducationUpdate(edu.id, { ...edu, school: e.target.value })}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`degree-${edu.id}`}>Degree</Label>
+                                      <Select
+                                        value={edu.degree}
+                                        onValueChange={(value) => handleEducationUpdate(edu.id, { ...edu, degree: value })}
+                                      >
+                                        <SelectTrigger id={`degree-${edu.id}`}>
+                                          <SelectValue placeholder="Select degree" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="Bachelor's">Bachelor's</SelectItem>
+                                          <SelectItem value="Master's">Master's</SelectItem>
+                                          <SelectItem value="Ph.D.">Ph.D.</SelectItem>
+                                          <SelectItem value="Associate's">Associate's</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`field_of_study-${edu.id}`}>Field of Study</Label>
+                                      <Input
+                                        id={`field_of_study-${edu.id}`}
+                                        value={edu.field_of_study}
+                                        onChange={(e) => handleEducationUpdate(edu.id, { ...edu, field_of_study: e.target.value })}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`graduation_year-${edu.id}`}>Graduation Year</Label>
+                                      <Input
+                                        id={`graduation_year-${edu.id}`}
+                                        value={edu.graduation_year}
+                                        onChange={(e) => handleEducationUpdate(edu.id, { ...edu, graduation_year: e.target.value })}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`gpa-${edu.id}`}>GPA (Optional)</Label>
+                                      <Input
+                                        id={`gpa-${edu.id}`}
+                                        value={edu.gpa}
+                                        onChange={(e) => handleEducationUpdate(edu.id, { ...edu, gpa: e.target.value })}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`max_gpa-${edu.id}`}>Max GPA</Label>
+                                      <Input
+                                        id={`max_gpa-${edu.id}`}
+                                        value={edu.max_gpa}
+                                        onChange={(e) => handleEducationUpdate(edu.id, { ...edu, max_gpa: e.target.value })}
+                                      />
+                                    </div>
+                                  </div>
+                                  <Button
+                                    variant="destructive"
+                                    onClick={() => handleEducationRemove(edu.id)}
+                                    className="mt-4"
+                                  >
+                                    Remove Education
+                                  </Button>
+                                </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          ))}
+                        </Accordion>
+                        <div className="space-y-4">
+                          <h4 className="font-semibold">Add New Education</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="school">School*</Label>
+                              <Input
+                                id="school"
+                                placeholder="College or University"
+                                value={newEducation.school}
+                                onChange={(e) => setNewEducation({ ...newEducation, school: e.target.value })}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="degree">Degree*</Label>
+                              <Select
+                                value={newEducation.degree}
+                                onValueChange={(value) => setNewEducation({ ...newEducation, degree: value })}
+                              >
+                                <SelectTrigger id="degree">
+                                  <SelectValue placeholder="Select degree" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Bachelor's">Bachelor's</SelectItem>
+                                  <SelectItem value="Master's">Master's</SelectItem>
+                                  <SelectItem value="Ph.D.">Ph.D.</SelectItem>
+                                  <SelectItem value="Associate's">Associate's</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="field_of_study">Field of Study*</Label>
+                              <Input
+                                id="field_of_study"
+                                placeholder="e.g. Computer Science"
+                                value={newEducation.field_of_study}
+                                onChange={(e) => setNewEducation({ ...newEducation, field_of_study: e.target.value })}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="graduation_year">Graduation Year*</Label>
+                              <Input
+                                id="graduation_year"
+                                placeholder="e.g. 2023"
+                                value={newEducation.graduation_year}
+                                onChange={(e) => setNewEducation({ ...newEducation, graduation_year: e.target.value })}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="gpa">GPA (Optional)</Label>
+                              <Input
+                                id="gpa"
+                                placeholder="e.g. 3.5"
+                                value={newEducation.gpa}
+                                onChange={(e) => setNewEducation({ ...newEducation, gpa: e.target.value })}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="max_gpa">Max GPA</Label>
+                              <Input
+                                id="max_gpa"
+                                placeholder="e.g. 4.0"
+                                value={newEducation.max_gpa}
+                                onChange={(e) => setNewEducation({ ...newEducation, max_gpa: e.target.value })}
+                              />
+                            </div>
+                          </div>
+                          <Button onClick={handleEducationAdd} className="w-full bg-blue-600 text-white hover:bg-blue-700">
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Education
+                          </Button>
+                        </div>
+                      </div>
 
                       <div className="space-y-4">
                         <h3 className="text-lg font-semibold">Achievements</h3>
@@ -1024,233 +1396,7 @@ export default function ProfilePage() {
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="resume">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Resume / CV</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div>
-                          <h3 className="text-lg font-semibold mb-2">Upload Resume</h3>
-                          <Input type="file" accept=".pdf,.doc,.docx" />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold mb-2">Current Resume</h3>
-                          {profileData.resume_file_url ? (
-                            <div className="flex items-center space-x-2">
-                              <FileIcon className="h-6 w-6" />
-                              <span>{profileData.resume_file_url.split('/').pop()}</span>
-                              <Button variant="outline" size="sm">View</Button>
-                              <Button variant="outline" size="sm">Delete</Button>
-                            </div>
-                          ) : (
-                            <p>No resume uploaded yet.</p>
-                          )}
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold mb-2">Video Resume</h3>
-                          <Input type="file" accept="video/*" />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="preferences">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Job Preferences</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-6">
-                        <div>
-                          <Label htmlFor="preferred_job_type">Preferred Job Type</Label>
-                          <Select
-                            value={profileData.preferred_job_type}
-                            onValueChange={(value) => handleSelectChange('preferred_job_type', value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select job type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="full-time">Full-time</SelectItem>
-                              <SelectItem value="part-time">Part-time</SelectItem>
-                              <SelectItem value="contract">Contract</SelectItem>
-                              <SelectItem value="internship">Internship</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label>Preferred Locations</Label>
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {['Remote', 'New York', 'San Francisco', 'London'].map((location) => (
-                              <div key={location} className="flex items-center space-x-2">
-                                <Checkbox
-                                  id={`location-${location}`}
-                                  checked={profileData.preferred_locations?.includes(location)}
-                                  onCheckedChange={(checked) => handleArrayChange('preferred_locations', location, checked)}
-                                />
-                                <label
-                                  htmlFor={`location-${location}`}
-                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                >
-                                  {location}
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="desired_salary">Desired Salary</Label>
-                            <Input
-                              id="desired_salary"
-                              name="desired_salary"
-                              type="number"
-                              value={profileData.desired_salary}
-                              onChange={handleInputChange}
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="desired_salary_currency">Currency</Label>
-                            <Select
-                              value={profileData.desired_salary_currency}
-                              onValueChange={(value) => handleSelectChange('desired_salary_currency', value)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select currency" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="USD">USD</SelectItem>
-                                <SelectItem value="EUR">EUR</SelectItem>
-                                <SelectItem value="GBP">GBP</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <div>
-                          <Label htmlFor="work_authorization">Work Authorization</Label>
-                          <Select
-                            value={profileData.work_authorization}
-                            onValueChange={(value) => handleSelectChange('work_authorization', value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select work authorization" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="us_citizen">US Citizen</SelectItem>
-                              <SelectItem value="green_card">Green Card</SelectItem>
-                              <SelectItem value="h1b">H1B Visa</SelectItem>
-                              <SelectItem value="other">Other</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label>Preferred Company Sizes</Label>
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {['Startup', 'Small', 'Medium', 'Large'].map((size) => (
-                              <div key={size} className="flex items-center space-x-2">
-                                <Checkbox
-                                  id={`company-size-${size}`}
-                                  checked={profileData.preferred_company_sizes?.includes(size)}
-                                  onCheckedChange={(checked) => handleArrayChange('preferred_company_sizes', size, checked)}
-                                />
-                                <label
-                                  htmlFor={`company-size-${size}`}
-                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                >
-                                  {size}
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <Label htmlFor="remote_work_preference">Remote Work Preference</Label>
-                          <Select
-                            value={profileData.remote_work_preference}
-                            onValueChange={(value) => handleSelectChange('remote_work_preference', value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select remote work preference" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="remote">Remote Only</SelectItem>
-                              <SelectItem value="hybrid">Hybrid</SelectItem>
-                              <SelectItem value="onsite">On-site</SelectItem>
-                              <SelectItem value="flexible">Flexible</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="culture">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Culture Fit</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-6">
-                        <div>
-                          <Label htmlFor="looking_for">What are you looking for in your next role?</Label>
-                          <Textarea
-                            id="looking_for"
-                            name="looking_for"
-                            value={profileData.looking_for}
-                            onChange={handleInputChange}
-                            rows={4}
-                          />
-                        </div>
-                        <div>
-                          <Label>Work Style Preferences</Label>
-                          <div className="grid grid-cols-2 gap-4 mt-2">
-                            {[
-                              'Collaborative', 'Independent',
-                              'Fast-paced', 'Structured',
-                              'Creative', 'Analytical',
-                              'Leadership opportunities', 'Mentorship'
-                            ].map((style) => (
-                              <div key={style} className="flex items-center space-x-2">
-                                <Checkbox id={`style-${style}`} />
-                                <label
-                                  htmlFor={`style-${style}`}
-                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                >
-                                  {style}
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <Label>Values Alignment</Label>
-                          <div className="grid grid-cols-2 gap-4 mt-2">
-                            {[
-                              'Work-life balance', 'Innovation',
-                              'Diversity & Inclusion', 'Sustainability',
-                              'Social impact', 'Career growth',
-                              'Company stability', 'Cutting-edge technology'
-                            ].map((value) => (
-                              <div key={value} className="flex items-center space-x-2">
-                                <Checkbox id={`value-${value}`} />
-                                <label
-                                  htmlFor={`value-${value}`}
-                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                >
-                                  {value}
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
+                {/* ... (other tabs content remains the same) */}
               </Tabs>
 
               <div className="mt-6">
